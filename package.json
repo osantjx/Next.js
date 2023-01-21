@@ -1,22 +1,150 @@
-{
-  "name": "project-template-next.js",
-  "private": true,
-  "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint"
-  },
-  "dependencies": {
-    "next": "12.0.9",
-    "react": "17.0.2",
-    "react-dom": "17.0.2"
-  },
-  "devDependencies": {
-    "@types/node": "17.0.12",
-    "@types/react": "17.0.38",
-    "eslint": "8.7.0",
-    "eslint-config-next": "12.0.9",
-    "typescript": "4.5.5"
-  }
-}
+-- display dialog to ask the user to start logging notifications, change the folder, open the folder or quit
+display dialog "MacOS Notification Log" buttons {"Start Logging Notifications!", "Change folder", "Open folder", "Quit"}
+
+-- set the folder path where the logs will be stored
+set logsFolderPath to (path to desktop as text) & "logs:"
+
+-- set the file path for the CSV log file
+set csvLogFilePath to logsFolderPath & "notificationlog.csv"
+
+-- set the file path for the TXT log file
+set txtLogFilePath to logsFolderPath & "notificationlog.txt"
+
+-- check if the logs folder exists, if not create it
+if not (exists folder logsFolderPath) then
+    do shell script "mkdir " & quoted form of logsFolderPath
+end if
+
+-- check if the CSV log file exists, if not create it and add a header
+if not (exists file csvLogFilePath) then
+    set logFileCSV to open for access csvLogFilePath with write permission
+    write "Timestamp, Title, Subtitle, Message, Source" & return to logFileCSV
+    close access csvLogFilePath
+end if
+
+-- check if the TXT log file exists, if not create it
+if not (exists file txtLogFilePath) then
+    set logFileTXT to open for access txtLogFilePath with write permission
+    close access txtLogFilePath
+end if
+
+-- open the CSV and TXT log files for writing
+set logFileCSV to open for access csvLogFilePath with write permission
+set eof of logFileCSV to 0
+set logFileTXT to open for access txtLogFilePath with write permission
+set eof of logFileTXT to 0
+
+-- set a flag to indicate if the logging is paused
+set isPaused to false
+
+-- set a flag to indicate if the logging is stopped
+set isStopped to false
+
+-- get the button pressed by the user
+set theButton to button returned of the result
+
+-- check if the user pressed the "Quit" button
+if theButton is "Quit" then
+    return
+
+-- check if the user pressed the "Change folder" button
+else if theButton is "Change folder" then
+    -- prompt the user to select a new folder for the logs
+    set theNewLogsFolder to choose folder with prompt "Select the new folder for the logs:"
+    set csvLogFilePath to theNewLogsFolder & "notificationlog.csv"
+    set txtLogFilePath to theNewLogsFolder & "notificationlog.txt"
+    -- check if the new folder exists, if not create it
+    if not (exists folder theNewLogsFolder) then
+        do shell script "mkdir " & quoted form of theNewLogsFolder
+    end if
+
+-- check if the user pressed the "Open folder" button
+else if theButton is "Open folder" then
+    tell application "Finder"
+        activate
+        reveal logsFolderPath
+    end tell
+
+else
+    -- prompt the user to enter the interval for checking for notifications
+    repeat
+        display dialog "How often would you like me to check for notifications? (seconds)" default answer "5"
+        set checkInterval to text returned of result
+        repeat
+            -- check if the logging is stopped
+            if isStopped then
+                display dialog "MacOS Notification Log is stopping..."
+                exit repeat
+            end if
+            -- check if the logging is not paused
+            if not isPaused then
+                -- get the last notification
+                tell application "System Events"
+                    set currentNotification to last item of (get every notification)
+                end tell
+                -- check if there is a notification
+                if currentNotification is not equal to missing value then
+                    -- get the timestamp, title, subtitle, message and source of the notification
+                    set notificationTimestamp to (delivered date of currentNotification) as string
+                    set notificationTitle to (title of currentNotification)
+                    set notificationSubtitle to (subtitle of currentNotification)
+                    set notificationMessage to (message of currentNotification)
+                    try
+                        set theSourceBundle to (bundle identifier of application process whose frontmost is true)
+                        set theSourceName to (do shell script "info=mdls -name kMDItemCFBundleIdentifier -r /Applications/" & theSourceBundle & ".app; echo $info")
+                        set notificationSource to theSourceName
+                    on error
+                        try
+                            set theSourceName to (do shell script "mdfind "kMDItemCFBundleIdentifier == '"& theSourceBundle & "'"")
+                            set notificationSource to theSourceBundle
+                        on error
+                            set notificationSource to ""
+                        end try
+                    end try
+                    -- write the notification details to the CSV and TXT log files
+                    write notificationTimestamp & "," & notificationTitle & "," & notificationSubtitle & "," & notificationMessage & "," & notificationSource & return to logFileCSV
+                    write notificationTimestamp & " | " & notificationTitle & " | " & notificationSubtitle & " | " & notificationMessage & " | " & notificationSource & return to logFileTXT
+                end if
+                -- wait for the specified interval before checking for the next notification
+                delay checkInterval
+            end if
+            -- check if the logging is paused
+            if isPaused then
+                set isPaused to false
+            end if
+        end repeat
+    end repeat
+end if
+
+-- close the CSV and TXT log files
+close access csvLogFilePath
+close access txtLogFilePath
+
+-- display a dialog to inform the user that the logging has stopped
+display dialog "MacOS Notification Log is stopped." buttons {"Quit"}
+
+-- activate the Finder application
+activate
+
+-- prompt the user to select an action (change folder, open folder or quit)
+set theUserChoice to button returned of (display dialog "What would you like to do?" buttons {"Change folder", "Open folder", "Quit"} default button 3)
+
+-- check if the user selected "Change folder"
+if theUserChoice is "Change folder" then
+    -- prompt the user to select a new folder for the logs
+    set theNewLogsFolder to choose folder with prompt "Select the new folder for the logs:"
+    set csvLogFilePath to theNewLogsFolder & "notificationlog.csv"
+    set txtLogFilePath to theNewLogsFolder & "notificationlog.txt"
+    -- check if the new folder exists, if not create it
+    if not (exists folder theNewLogsFolder) then
+        do shell script "mkdir " & quoted form of theNewLogsFolder
+    end if
+
+-- check if the user selected "Open folder"
+else if theUserChoice is "Open folder" then
+    -- open the folder containing the logs in the Finder
+    tell application "Finder"
+        activate
+        reveal logsFolderPath
+    end tell
+end if
